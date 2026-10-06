@@ -1,5 +1,5 @@
 /**
- * dsh-usage-monitor — Host half.
+ * dsh-cost-usage-monitor — Host half.
  *
  * The browser half cannot read the account balance by itself: the DeepSeek API
  * key belongs to the Host, `api.deepseek.com` serves no CORS headers, and the
@@ -17,11 +17,11 @@
  * page shows. The route is served by the same loopback listener as the rest of
  * the Web GUI; see AGENTS.md for the contract and for how to refresh prices.
  *
- * @module dsh-usage-monitor
+ * @module dsh-cost-usage-monitor
  */
 
 /** Cordis plugin name — also the browser module id registered by ./client. */
-export const name = 'dsh-usage-monitor'
+export const name = 'dsh-cost-usage-monitor'
 
 /** The Web bundle owns the HTTP carrier this route rides on. */
 export const inject = ['webServer']
@@ -177,6 +177,6 @@ export function apply(ctx) {
 					sendJson(res, result.status, result.body)
 				},
 			}),
-		'dsh-usage-monitor: balance route',
+		'dsh-cost-usage-monitor: balance route',
 	)
 }

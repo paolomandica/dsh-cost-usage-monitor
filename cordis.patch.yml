@@ -4,5 +4,5 @@
 # (see index.js and AGENTS.md §5); the row also makes the package resolve as a
 # Loader entry so dsh-client-modules can publish ./client as a browser module.
 - insert:
-    - id: dsh-usage-monitor
-      name: 'dsh-usage-monitor'
+    - id: dsh-cost-usage-monitor
+      name: 'dsh-cost-usage-monitor'

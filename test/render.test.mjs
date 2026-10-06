@@ -244,7 +244,7 @@ const requireDouble = (specifier) => {
 // globals the module loader would have supplied.
 new Function('window', 'document', 'require', source)(windowDouble, documentDouble, requireDouble)
 
-assert.equal(loaded.id, 'dsh-usage-monitor', 'the module id must equal the package name')
+assert.equal(loaded.id, 'dsh-cost-usage-monitor', 'the module id must equal the package name')
 
 const plugin = loaded.factory(requireDouble)
 assert.equal(typeof plugin.apply, 'function', 'the factory must export apply')
@@ -253,7 +253,7 @@ assert.deepEqual(plugin.inject, ['slots', 'locale'], 'the factory must declare i
 plugin.apply(ctx)
 assert.ok(registration, 'apply must register exactly one slot entry')
 assert.equal(registration.options.name, 'conversation.composer.dock')
-assert.equal(registration.options.id, 'dsh-usage-monitor')
+assert.equal(registration.options.id, 'dsh-cost-usage-monitor')
 assert.equal(registration.options.locale, 'usageMonitor')
 
 const { stores } = registration.options.inject()
@@ -413,7 +413,7 @@ assert.ok(editor, 'the panel must expose save and reset handlers')
 editor.props.onSave({ input: 1, cacheRead: 0, cacheWrite: 0, output: 2, peakMultiplier: 3 })
 assert.deepEqual(stores.prices.getSnapshot().models['deepseek-flash'], { input: 1, cacheRead: 0, cacheWrite: 0, output: 2 }, 'saving writes only the price row')
 assert.equal(stores.prices.getSnapshot().peakMultiplier, 3, 'saving carries the peak multiplier')
-assert.ok(storage.get('dsh-usage-monitor/prices/v1').includes('"input":1'), 'price overrides persist to localStorage')
+assert.ok(storage.get('dsh-cost-usage-monitor/prices/v1').includes('"input":1'), 'price overrides persist to localStorage')
 editor.props.onReset()
 assert.equal(stores.prices.getSnapshot().models['deepseek-flash'].input, 0.15, 'reset restores the shipped default')
 assert.equal(stores.prices.getSnapshot().peakMultiplier, 2, 'reset restores the peak multiplier')

@@ -1,5 +1,5 @@
 /**
- * dsh-usage-monitor — browser half.
+ * dsh-cost-usage-monitor — browser half.
  *
  * Registers one entry into the composer dock (`conversation.composer.dock`)
  * that reads two existing session projections and one route its own Host half
@@ -18,7 +18,7 @@
  * localStorage. See `AGENTS.md` before refreshing the table.
  */
 window.__ModuleLoader__.load({
-	id: "dsh-usage-monitor",
+	id: "dsh-cost-usage-monitor",
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
@@ -183,7 +183,7 @@ window.__ModuleLoader__.load({
 
 		//#region lib/types/client/prices.js
 		/** localStorage key holding the persisted price table. */
-		const PRICE_KEY = "dsh-usage-monitor/prices/v1";
+		const PRICE_KEY = "dsh-cost-usage-monitor/prices/v1";
 		/** Key the editor writes when the session reports no model yet. */
 		const FALLBACK_MODEL_KEY = "default";
 		/**
@@ -508,10 +508,10 @@ window.__ModuleLoader__.load({
 		 */
 		function installStyles() {
 			if (typeof document === "undefined") return;
-			const tagId = "dsh-usage-monitor/client.css";
+			const tagId = "dsh-cost-usage-monitor/client.css";
 			if (document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") !== null) return;
 			const tag = document.createElement("style");
-			tag.dataset.plugin = "dsh-usage-monitor";
+			tag.dataset.plugin = "dsh-cost-usage-monitor";
 			tag.dataset.pluginCss = tagId;
 			tag.textContent = CSS;
 			document.head.appendChild(tag);
@@ -893,7 +893,7 @@ window.__ModuleLoader__.load({
 			}
 			componentDidCatch(error) {
 				try {
-					console.warn("[dsh-usage-monitor] dock entry crashed", error);
+					console.warn("[dsh-cost-usage-monitor] dock entry crashed", error);
 				} catch (_error) {
 					/* logging must never rethrow */
 				}
@@ -921,13 +921,13 @@ window.__ModuleLoader__.load({
 		 */
 		function apply(ctx) {
 			installStyles();
-			ctx.effect(() => ctx.locale.register(NS, { en, zh }), "dsh-usage-monitor: dictionaries");
+			ctx.effect(() => ctx.locale.register(NS, { en, zh }), "dsh-cost-usage-monitor: dictionaries");
 			const stores = { prices: createPriceStore(), balance: createBalanceStore() };
 			ctx.slots.inject("conversation.composer.dock", () =>
 				ctx.slots.register(
 					{
 						name: "conversation.composer.dock",
-						id: "dsh-usage-monitor",
+						id: "dsh-cost-usage-monitor",
 						order: 20,
 						locale: NS,
 						inject: () => ({ stores }),

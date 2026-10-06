@@ -47,7 +47,7 @@ previous snapshot as if it were fresh.
 - `fallback` prices sessions whose route is not in `models`; `default` prices the editor when
   no model is known yet.
 - Users can override any row in the panel. Those overrides are persisted under the
-  `localStorage` key `dsh-usage-monitor/prices/v1` and **shadow the shipped defaults**, so
+  `localStorage` key `dsh-cost-usage-monitor/prices/v1` and **shadow the shipped defaults**, so
   editing `DEFAULT_PRICES` does not reach anyone who already saved a table. Bump the key to
   `…/v2` only if the user asks for new defaults to reach existing users; that silently
   discards their overrides, so it is a decision to confirm, not a default move.

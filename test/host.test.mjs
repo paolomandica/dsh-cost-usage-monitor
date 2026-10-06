@@ -69,7 +69,7 @@ async function call(handler, method = 'GET') {
 
 // ------------------------------------------------------------------ identity
 
-assert.equal(name, 'dsh-usage-monitor', 'the Host plugin id must equal the package name')
+assert.equal(name, 'dsh-cost-usage-monitor', 'the Host plugin id must equal the package name')
 assert.deepEqual(inject, ['webServer'], 'the route needs the HTTP carrier')
 
 // --- a configured credential reaches the documented endpoint ----------------

@@ -1,4 +1,4 @@
-# dsh-usage-monitor
+# dsh-cost-usage-monitor
 
 A DeepSeek Harness plugin that puts **account balance** and **session usage cost** in the
 composer dock, next to the built-in stats pills.
@@ -8,7 +8,7 @@ composer dock, next to the built-in stats pills.
 ```
 
 The leading glyph is a usage gauge — a half-oval dial with a needle and a dotted scale
-([`icon.svg`](icon.svg), drawn inline by `UsageIcon`), not a currency symbol.
+([`icon.svg`](https://github.com/paolomandica/dsh-cost-usage-monitor/blob/main/icon.svg), drawn inline by `UsageIcon`), not a currency symbol.
 
 The pill is a button. It opens a panel with the billed token buckets, the cost each bucket
 contributed, the live wallet (plus bonus wallets), and the price table used for the estimate.
@@ -59,9 +59,9 @@ at peak. `cacheWrite` has no separately published charge and mirrors the cache-m
 Edit the fields for the session's current model and press **Save prices**; **Reset to
 defaults** drops the override. A session whose route is not in the table is priced by the
 fallback row, which the editor edits when no model is known yet. Overrides persist in
-`localStorage` under `dsh-usage-monitor/prices/v1`.
+`localStorage` under `dsh-cost-usage-monitor/prices/v1`.
 
-Prices do change. [`AGENTS.md`](AGENTS.md) records where to read the current ones and the
+Prices do change. [`AGENTS.md`](https://github.com/paolomandica/dsh-cost-usage-monitor/blob/main/AGENTS.md) records where to read the current ones and the
 exact steps for refreshing this table, the README table above, and the test expectations.
 
 ## Behaviour
@@ -94,8 +94,25 @@ AGENTS.md            Where to read current prices; how to refresh them
 
 ## Install
 
+From npm — the prebuilt path, so pnpm never runs a build script and the user grants no
+install-time code execution:
+
 ```sh
-dsh plugin --profile desktop add /Users/paolo/dev/dsh-usage-monitor
+dsh plugin --profile desktop add dsh-cost-usage-monitor
+```
+
+From GitHub installs the **source**, which carries no built entry point; pnpm runs the
+package's `prepare` script after the user authorizes it. Prefer the npm form unless you are
+pinning a commit you have read:
+
+```sh
+dsh plugin --profile desktop add github:paolomandica/dsh-cost-usage-monitor
+```
+
+While developing, link a checkout by absolute path:
+
+```sh
+dsh plugin --profile desktop add /path/to/dsh-cost-usage-monitor
 ```
 
 `dsh plugin` runs pnpm in the profile directory and then adds every installed package
@@ -104,7 +121,7 @@ publishes the browser bundle live; refresh the page if the entry does not appear
 the package is composed through the page's boot graph:
 
 ```sh
-curl -s -H "Cookie: <the dsh-auth cookie>" http://127.0.0.1:19387/ | grep -o 'dsh-usage-monitor[^"]*'
+curl -s -H "Cookie: <the dsh-auth cookie>" http://127.0.0.1:19387/ | grep -o 'dsh-cost-usage-monitor[^"]*'
 ```
 
 The balance route needs the Web bundle's `webServer` service and a resolvable
@@ -136,7 +153,7 @@ doubles, and asserts the provider request, the shaped success body, and every fa
 ## Uninstall
 
 ```sh
-dsh plugin --profile desktop remove dsh-usage-monitor
+dsh plugin --profile desktop remove dsh-cost-usage-monitor
 ```
 
 ## License
