@@ -1,0 +1,67 @@
+# Publish dsh-cost-usage-monitor to npm via Trusted Publishing (OIDC).
+#
+# No NPM_TOKEN secret exists for this repository. The job exchanges a
+# short-lived GitHub OIDC token for publish rights, so the trust relationship
+# lives in the package's settings on npmjs.com rather than in a stored
+# credential that can leak or need rotating:
+#
+#   npmjs.com -> dsh-cost-usage-monitor -> Settings -> Trusted Publisher
+#     Organization or user: paolomandica
+#     Repository:           dsh-cost-usage-monitor
+#     Workflow filename:    publish.yml      (filename only, case-sensitive)
+#     Environment:          (blank)
+#     Allowed actions:      allow `npm publish`
+#
+# npm requires the package to already exist before a trusted publisher can be
+# configured, so the very first release was bootstrapped by hand. Every
+# release after that goes through this workflow.
+#
+# Requires npm >= 11.5.1 and Node >= 22.14.0, and the workflow filename on
+# npmjs.com must match this file exactly.
+
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  # Manual runs publish whatever version package.json currently holds; the
+  # tag/version guard below only applies to tag pushes.
+  workflow_dispatch:
+
+# Default deny: the publish job grants exactly what OIDC needs and nothing else.
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the only grant trusted publishing requires
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm >= 11.5.1; the runner's bundled npm can lag.
+      - run: npm install -g npm@latest
+
+      # A mistagged release must not publish over a good version.
+      - name: Guard tag against package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+
+      # Same checks as the README's Test section.
+      - run: node --check index.js && node --check client.js
+      - run: node test/host.test.mjs
+      - run: node test/render.test.mjs
+
+      # No NODE_AUTH_TOKEN: the npm CLI detects the OIDC environment itself.
+      - run: npm publish --provenance --access public
