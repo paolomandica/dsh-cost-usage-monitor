@@ -4,7 +4,7 @@ A DeepSeek Harness plugin that puts **account balance** and **session usage cost
 composer dock, next to the built-in stats pills.
 
 ```
-                                                        ⌾ $0.378 · ·  ¥42.50
+                                                        $ $0.216 · ·  ¥42.50
 ```
 
 The pill is a button. It opens a panel with the billed token buckets, the cost each bucket
@@ -20,20 +20,30 @@ contributed, the live wallet (plus bonus wallets), and the price table used for 
 | Price per 1M tokens | this plugin — editable, persisted in `localStorage` |
 
 **Cost is an estimate.** The runtime reports exact token usage but carries no monetary
-price for a route, so the plugin ships a placeholder table and lets you correct it. The
-provider's billing statement is authoritative.
+price for a route, so the plugin ships an editable table seeded from the provider's list
+prices. The provider's billing statement is authoritative.
 
-Defaults (USD per 1M tokens):
+Defaults are DeepSeek's published **off-peak** list prices (USD per 1M tokens):
 
-| Model | Input | Cache read | Cache write | Output |
+| Model | Input (cache miss) | Cache read (hit) | Cache write | Output |
 | --- | --- | --- | --- | --- |
-| `deepseek-flash`, `deepseek-v4-flash`, `deepseek-chat` | 0.28 | 0.028 | 0.28 | 0.42 |
-| `deepseek-v4-pro`, `deepseek-reasoner` | 0.55 | 0.14 | 0.55 | 2.19 |
-| any other model (fallback row) | 0.28 | 0.028 | 0.28 | 0.42 |
+| `deepseek-flash` (DeepSeek-V4.1-Flash), `deepseek-v4-flash`, `deepseek-chat` | 0.15 | 0.003 | 0.15 | 0.6 |
+| `deepseek-v4-pro`, `deepseek-reasoner` | 0.66 | 0.022 | 0.66 | 1.98 |
+| any other model (fallback row) | 0.15 | 0.003 | 0.15 | 0.6 |
 
-Edit the four fields for the session's current model and press **Save prices**; use
-**Reset to defaults** to drop the override. A session whose route is not in the table is
-priced by the fallback row, which the editor edits when no model is known yet.
+DeepSeek bills a **peak** tariff of twice the off-peak rate during 01:00–04:00 and
+06:00–10:00 UTC, Monday to Friday. The plugin applies that factor itself — the **Peak ×**
+field, 2 by default — and the panel states which tariff is in force. Chinese public
+holidays are off-peak upstream but are not modelled here, so a holiday weekday is priced
+at peak. `cacheWrite` has no separately published charge and mirrors the cache-miss rate.
+
+Edit the fields for the session's current model and press **Save prices**; **Reset to
+defaults** drops the override. A session whose route is not in the table is priced by the
+fallback row, which the editor edits when no model is known yet. Overrides persist in
+`localStorage` under `dsh-usage-monitor/prices/v1`.
+
+Prices do change. [`AGENTS.md`](AGENTS.md) records where to read the current ones and the
+exact steps for refreshing this table, the README table above, and the test expectations.
 
 ## Behaviour
 
@@ -58,6 +68,7 @@ locale/en.json       Plugin-manager display metadata
 locale/zh.json
 icon.svg
 test/render.test.mjs Renders the browser half under a React double
+AGENTS.md            Where to read current prices; how to refresh them
 ```
 
 ## Install
@@ -85,7 +96,8 @@ node test/render.test.mjs
 The test evaluates `client.js` against a minimal React double, drives `apply()` with a fake
 slot registry, resolves a fake account Remote, and asserts the pill and the panel render the
 expected cost, wallets, and price fields — including the empty, signed-out, and
-no-account-namespace cases.
+no-account-namespace cases. It freezes `Date` so the peak and off-peak tariffs are both
+exercised deterministically.
 
 ## Uninstall
 

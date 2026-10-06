@@ -276,6 +276,21 @@ assert.deepEqual(metadataSeen.locale, 'en-US')
 assert.equal(metadataSeen.timezoneOffsetSeconds % 60, 0, 'the metadata offset is whole seconds')
 
 // --- render the pill --------------------------------------------------------
+// A settable clock keeps the peak/off-peak tariff deterministic: the widget
+// reads `Date.now()` on every render to pick the tariff factor.
+const RealDate = Date
+let frozenAt = new RealDate('2026-03-11T12:00:00Z').getTime() // Wednesday 12:00 UTC, off-peak
+class FrozenDate extends RealDate {
+  constructor(...args) {
+    if (args.length === 0) super(frozenAt)
+    else super(...args)
+  }
+  static now() {
+    return frozenAt
+  }
+}
+globalThis.Date = FrozenDate
+
 const usage = { uncachedInputTokens: 1_000_000, cacheReadTokens: 2_000_000, cacheWriteTokens: 0, outputTokens: 100_000 }
 const props = {
   useProjection: (key) => {
@@ -296,8 +311,8 @@ flushAll()
 tree = renderFunction(registration.component, props)
 html = serialize(tree)
 assert.ok(html.includes('¥42.50'), `the pill must show the wallet balance, got: ${html}`)
-// deepseek-flash defaults: 1M input * 0.28 + 2M cacheRead * 0.028 + 0.1M output * 0.42 = 0.378
-assert.ok(html.includes('$0.378'), `the pill must show the session cost, got: ${html}`)
+// deepseek-flash off-peak defaults: 1M input * 0.15 + 2M cacheRead * 0.003 + 0.1M output * 0.6 = 0.216
+assert.ok(html.includes('$0.216'), `the pill must show the session cost, got: ${html}`)
 
 // --- open the panel ---------------------------------------------------------
 const trigger = find(tree, (node) => node.type === 'button')
@@ -313,15 +328,30 @@ assert.ok(html.includes('row.cacheRead'), 'the panel must render the token rows'
 assert.ok(html.includes('42.50'), 'the panel must render the wallet')
 assert.ok(html.includes('5.00'), 'the panel must render the bonus wallet')
 assert.ok(html.includes('deepseek-flash'), 'the panel must name the priced model')
-assert.ok(html.includes('$0.378'), 'the panel total must match the pill')
+assert.ok(html.includes('$0.216'), 'the panel total must match the pill')
 assert.ok(html.includes('section.prices'), 'the panel must render the price editor')
+assert.ok(html.includes('row.peakMultiplier'), 'the panel must render the peak multiplier field')
+assert.ok(html.includes('prices.tierOffPeak'), 'the panel must name the tariff in force')
+
+// --- the peak tariff doubles the estimate ----------------------------------
+frozenAt = new RealDate('2026-03-11T02:00:00Z').getTime() // Wednesday 02:00 UTC, peak
+assert.equal(stores.prices.getSnapshot().peakMultiplier, 2, 'peak is twice off-peak by default')
+tree = renderFunction(registration.component, props)
+html = serialize(tree)
+assert.ok(html.includes('$0.432'), `the peak tariff must double the cost, got: ${html}`)
+assert.ok(html.includes('prices.tierPeak'), 'the panel must name the peak tier')
+// Saturday 02:00 UTC is inside a peak window but on a weekend, so it is off-peak.
+frozenAt = new RealDate('2026-03-14T02:00:00Z').getTime()
+html = serialize(renderFunction(registration.component, props))
+assert.ok(html.includes('$0.216'), `weekends must stay off-peak, got: ${html}`)
+frozenAt = new RealDate('2026-03-11T12:00:00Z').getTime()
 
 // --- a signed-out account still renders the cost side ----------------------
 ctx.__remote = { account: { getBalance: async () => ({ ok: true, value: null }) } }
 await stores.balance.refresh()
 assert.equal(stores.balance.getSnapshot().status, 'signed-out')
 tree = renderFunction(registration.component, props)
-assert.ok(serialize(tree).includes('$0.378'), 'the cost survives a signed-out account')
+assert.ok(serialize(tree).includes('$0.216'), 'the cost survives a signed-out account')
 
 // --- no account namespace at all -------------------------------------------
 ctx.__remote = undefined
@@ -337,11 +367,20 @@ serialize(quiet)
 flushAll()
 assert.equal(serialize(renderFunction(registration.component, { ...props, useProjection: () => undefined })), '', 'an empty session renders nothing')
 
-// --- price overrides round-trip --------------------------------------------
-stores.prices.setModelPrice('deepseek-flash', { input: 1, cacheRead: 0, cacheWrite: 0, output: 2 })
-assert.deepEqual(stores.prices.getSnapshot().models['deepseek-flash'], { input: 1, cacheRead: 0, cacheWrite: 0, output: 2 })
+// --- the editor's save and reset wiring round-trip -------------------------
+tree = renderFunction(registration.component, props)
+const editor = find(tree, (node) => typeof node.props?.onSave === 'function')
+assert.ok(editor, 'the panel must expose save and reset handlers')
+editor.props.onSave({ input: 1, cacheRead: 0, cacheWrite: 0, output: 2, peakMultiplier: 3 })
+assert.deepEqual(stores.prices.getSnapshot().models['deepseek-flash'], { input: 1, cacheRead: 0, cacheWrite: 0, output: 2 }, 'saving writes only the price row')
+assert.equal(stores.prices.getSnapshot().peakMultiplier, 3, 'saving carries the peak multiplier')
 assert.ok(storage.get('dsh-usage-monitor/prices/v1').includes('"input":1'), 'price overrides persist to localStorage')
-stores.prices.resetModel('deepseek-flash')
-assert.equal(stores.prices.getSnapshot().models['deepseek-flash'].input, 0.28)
+editor.props.onReset()
+assert.equal(stores.prices.getSnapshot().models['deepseek-flash'].input, 0.15, 'reset restores the shipped default')
+assert.equal(stores.prices.getSnapshot().peakMultiplier, 2, 'reset restores the peak multiplier')
+
+// --- a non-positive multiplier falls back to the default -------------------
+stores.prices.setPeakMultiplier(0)
+assert.equal(stores.prices.getSnapshot().peakMultiplier, 2)
 
 console.log('ok — dock entry, panel, wallet, and price table all behave')

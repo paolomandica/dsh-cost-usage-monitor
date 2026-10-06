@@ -11,7 +11,9 @@
  *
  * Cost is an estimate: token counts are exact provider usage, but the price
  * table ships with editable defaults (per 1M tokens) because prices are not
- * part of the runtime's model metadata. Overrides persist in localStorage.
+ * part of the runtime's model metadata. Defaults are DeepSeek's published
+ * off-peak list prices; the peak windows multiply them. Overrides persist in
+ * localStorage. See `AGENTS.md` before refreshing the table.
  */
 window.__ModuleLoader__.load({
 	id: "dsh-usage-monitor",
@@ -57,10 +59,14 @@ window.__ModuleLoader__.load({
 			"balance.loading": "Reading the balance…",
 			"balance.refresh": "Refresh balance",
 			"balance.updated": "Updated {time}",
+			"row.peakMultiplier": "Peak \u00d7",
 			"prices.save": "Save prices",
 			"prices.saved": "Prices saved",
 			"prices.reset": "Reset to defaults",
-			"prices.note": "Defaults are placeholders for the advertised DeepSeek routes; adjust them to your plan.",
+			"prices.note": "Defaults are DeepSeek's published off-peak list prices; adjust them to your plan.",
+			"prices.peakNote": "Peak is 01:00\u201304:00 and 06:00\u201310:00 UTC on weekdays; off-peak is half.",
+			"prices.tierPeak": "Peak rates apply now (\u00d7{factor}).",
+			"prices.tierOffPeak": "Off-peak rates apply now.",
 			"panel.footnote": "Cost is estimated from provider-reported token usage and the price table above. The provider's own billing statement is authoritative.",
 			"model.unknown": "unknown",
 		};
@@ -94,10 +100,14 @@ window.__ModuleLoader__.load({
 			"balance.loading": "正在读取余额…",
 			"balance.refresh": "刷新余额",
 			"balance.updated": "更新于 {time}",
+			"row.peakMultiplier": "高峰倍率",
 			"prices.save": "保存价格",
 			"prices.saved": "价格已保存",
 			"prices.reset": "恢复默认",
-			"prices.note": "默认值仅为已公布 DeepSeek 路由的占位价格，请按你的实际套餐调整。",
+			"prices.note": "默认值为 DeepSeek 公布的低谷时段价格，请按实际套餐调整。",
+			"prices.peakNote": "高峰时段为工作日 UTC 01:00–04:00 与 06:00–10:00，价格为低谷的两倍。",
+			"prices.tierPeak": "当前为高峰时段（×{factor}）。",
+			"prices.tierOffPeak": "当前为低谷时段。",
 			"panel.footnote": "费用由提供商上报的 Token 用量与上表价格估算，实际计费以提供商账单为准。",
 			"model.unknown": "未知",
 		};
@@ -176,19 +186,59 @@ window.__ModuleLoader__.load({
 		const PRICE_KEY = "dsh-usage-monitor/prices/v1";
 		/** Key the editor writes when the session reports no model yet. */
 		const FALLBACK_MODEL_KEY = "default";
-		/** Editable price defaults, in USD per 1M tokens, for the advertised routes. */
+		/**
+		 * DeepSeek bills a peak tariff inside these windows and half that
+		 * off-peak everywhere else. Windows are UTC hours `[start, end)`, and
+		 * they apply Monday to Friday only.
+		 */
+		const PEAK_WINDOWS_UTC = [
+			[1, 4],
+			[6, 10],
+		];
+		/**
+		 * EDITING PRICES? Read `AGENTS.md` in the repository root first. It names
+		 * the authoritative DeepSeek price page, the exact fields to change here,
+		 * and the README/test/commit steps that go with a price refresh.
+		 *
+		 * The table below holds **off-peak** list prices in USD per 1M tokens,
+		 * taken from https://api-docs.deepseek.com/quick_start/pricing/ ; the
+		 * runtime carries no price metadata of its own. `deepseek-flash` is the
+		 * DeepSeek-V4.1-Flash route. `cacheWrite` has no separate published
+		 * charge, so it mirrors the cache-miss (input) rate. Overrides typed in
+		 * the panel persist in localStorage and shadow these defaults.
+		 */
 		const DEFAULT_PRICES = {
 			currency: "USD",
-			fallback: { input: 0.28, cacheRead: 0.028, cacheWrite: 0.28, output: 0.42 },
+			/** Applied inside PEAK_WINDOWS_UTC; DeepSeek publishes peak as 2x off-peak. */
+			peakMultiplier: 2,
+			fallback: { input: 0.15, cacheRead: 0.003, cacheWrite: 0.15, output: 0.6 },
 			models: {
-				default: { input: 0.28, cacheRead: 0.028, cacheWrite: 0.28, output: 0.42 },
-				"deepseek-flash": { input: 0.28, cacheRead: 0.028, cacheWrite: 0.28, output: 0.42 },
-				"deepseek-v4-flash": { input: 0.28, cacheRead: 0.028, cacheWrite: 0.28, output: 0.42 },
-				"deepseek-v4-pro": { input: 0.55, cacheRead: 0.14, cacheWrite: 0.55, output: 2.19 },
-				"deepseek-chat": { input: 0.28, cacheRead: 0.028, cacheWrite: 0.28, output: 0.42 },
-				"deepseek-reasoner": { input: 0.55, cacheRead: 0.14, cacheWrite: 0.55, output: 2.19 },
+				default: { input: 0.15, cacheRead: 0.003, cacheWrite: 0.15, output: 0.6 },
+				"deepseek-flash": { input: 0.15, cacheRead: 0.003, cacheWrite: 0.15, output: 0.6 },
+				"deepseek-v4-flash": { input: 0.15, cacheRead: 0.003, cacheWrite: 0.15, output: 0.6 },
+				"deepseek-v4-pro": { input: 0.66, cacheRead: 0.022, cacheWrite: 0.66, output: 1.98 },
+				"deepseek-chat": { input: 0.15, cacheRead: 0.003, cacheWrite: 0.15, output: 0.6 },
+				"deepseek-reasoner": { input: 0.66, cacheRead: 0.022, cacheWrite: 0.66, output: 1.98 },
 			},
 		};
+		/**
+		 * Whether DeepSeek's peak tariff applies at one instant: 01:00-04:00 and
+		 * 06:00-10:00 UTC, Monday to Friday. Chinese public holidays are also
+		 * off-peak upstream but are not modelled here, so a holiday weekday is
+		 * priced at peak.
+		 * @param at - epoch milliseconds.
+		 * @returns true when the peak tariff applies.
+		 */
+		function isPeak(at) {
+			const date = new Date(at);
+			const day = date.getUTCDay();
+			if (day === 0 || day === 6) return false;
+			const hour = date.getUTCHours() + date.getUTCMinutes() / 60;
+			for (const [start, end] of PEAK_WINDOWS_UTC) {
+				if (hour >= start && hour < end) return true;
+			}
+			return false;
+		}
 		/**
 		 * Coerce one stored price row, dropping anything non-numeric.
 		 * @param raw - candidate row.
@@ -224,6 +274,7 @@ window.__ModuleLoader__.load({
 			}
 			return {
 				currency: typeof raw?.currency === "string" && raw.currency !== "" ? raw.currency : DEFAULT_PRICES.currency,
+				peakMultiplier: Number.isFinite(Number(raw?.peakMultiplier)) && Number(raw.peakMultiplier) > 0 ? Number(raw.peakMultiplier) : DEFAULT_PRICES.peakMultiplier,
 				fallback: normalizePrice(raw?.fallback, DEFAULT_PRICES.fallback),
 				models,
 			};
@@ -254,6 +305,10 @@ window.__ModuleLoader__.load({
 					if (currency === state.currency) return;
 					publish({ ...state, currency });
 				},
+				setPeakMultiplier: (value) => {
+					const factor = Number(value);
+					publish({ ...state, peakMultiplier: Number.isFinite(factor) && factor > 0 ? factor : DEFAULT_PRICES.peakMultiplier });
+				},
 				setModelPrice: (model, price) => {
 					publish({ ...state, models: { ...state.models, [model]: normalizePrice(price, state.fallback) } });
 				},
@@ -275,15 +330,21 @@ window.__ModuleLoader__.load({
 			return table.fallback;
 		}
 		/**
-		 * Price one usage projection's four disjoint buckets.
+		 * Price one usage projection's four disjoint buckets under one tariff.
 		 * @param usage - `tokenUsage` projection value.
-		 * @param price - per-1M-token price row.
-		 * @returns total estimated amount.
+		 * @param price - off-peak per-1M-token price row.
+		 * @param factor - tariff multiplier: 1 off-peak, `peakMultiplier` at peak.
+		 * @returns per-bucket amounts plus their `total`.
 		 */
-		function costOf(usage, price) {
-			let total = 0;
-			for (const bucket of BUCKETS) total += (Number(usage[bucket.usage]) || 0) / 1e6 * price[bucket.price];
-			return total;
+		function costOf(usage, price, factor) {
+			const per = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
+			if (usage === void 0) return per;
+			for (const bucket of BUCKETS) {
+				const amount = (Number(usage[bucket.usage]) || 0) / 1e6 * price[bucket.price] * factor;
+				per[bucket.price] = amount;
+				per.total += amount;
+			}
+			return per;
 		}
 		//#endregion
 
@@ -468,12 +529,8 @@ window.__ModuleLoader__.load({
 			return h(
 				"svg",
 				{ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
-				h("path", { key: "a", d: "M3 17.5V9.2a2 2 0 0 1 2-2h2.3" }),
-				h("path", { key: "b", d: "M3 13.4h6.6" }),
-				h("circle", { key: "c", cx: 16.2, cy: 9.1, r: 5 }),
-				h("path", { key: "d", d: "M16.2 6.9v4.4" }),
-				h("path", { key: "e", d: "M18.1 8.1c-.4-.6-1.1-.9-1.9-.9-1.1 0-2 .6-2 1.5s.9 1.4 2 1.4 2 .5 2 1.4-.9 1.5-2 1.5c-.8 0-1.5-.3-1.9-.9" }),
-				h("path", { key: "f", d: "M7.4 17.5h9.9" }),
+				h("path", { key: "a", d: "M12 2.6v18.8" }),
+				h("path", { key: "b", d: "M16.8 6.9c-.9-1.4-2.7-2.2-4.8-2.2-2.7 0-4.9 1.4-4.9 3.6s2.2 3.4 4.9 3.4 4.9 1.3 4.9 3.5-2.2 3.6-4.9 3.6c-2.1 0-3.9-.8-4.8-2.2" }),
 			);
 		}
 		//#endregion
@@ -507,27 +564,34 @@ window.__ModuleLoader__.load({
 		 * @param props - projection reads, stores, locale, and dismissal.
 		 * @returns the panel element.
 		 */
-		function Panel({ usage, model, provider, prices, price, costs, balance, style, panelRef, t, onClose, onRefresh, onSave, onReset, onCurrency }) {
-			const [draft, setDraft] = React.useState(() => ({
+		function Panel({ usage, model, provider, prices, price, costs, tier, factor, balance, style, panelRef, t, onClose, onRefresh, onSave, onReset, onCurrency }) {
+			const draftFrom = () => ({
 				input: String(price.input),
 				cacheRead: String(price.cacheRead),
 				cacheWrite: String(price.cacheWrite),
 				output: String(price.output),
-			}));
+				peakMultiplier: String(prices.peakMultiplier),
+			});
+			const [draft, setDraft] = React.useState(draftFrom);
 			const [saved, setSaved] = React.useState(false);
 			const modelKey = model ?? "";
+			// A new model starts a fresh edit, so drop the confirmation too.
 			React.useEffect(() => {
-				setDraft({
-					input: String(price.input),
-					cacheRead: String(price.cacheRead),
-					cacheWrite: String(price.cacheWrite),
-					output: String(price.output),
-				});
+				setDraft(draftFrom());
 				setSaved(false);
 			}, [modelKey]);
+			// Save and reset replace the stored row underneath the draft; mirror
+			// it without clearing the confirmation the save just raised.
+			React.useEffect(() => {
+				setDraft(draftFrom());
+			}, [price, prices.peakMultiplier]);
 			const parsed = (key) => {
 				const value = Number(draft[key]);
 				return Number.isFinite(value) && value >= 0 ? value : 0;
+			};
+			const parsedFactor = () => {
+				const value = Number(draft.peakMultiplier);
+				return Number.isFinite(value) && value > 0 ? value : 1;
 			};
 			const walletRows = [];
 			for (let index = 0; index < balance.wallets.length; index += 1) {
@@ -635,7 +699,10 @@ window.__ModuleLoader__.load({
 						h(PriceField, { label: t("money.cacheRead"), value: draft.cacheRead, onChange: (value) => setDraft({ ...draft, cacheRead: value }) }),
 						h(PriceField, { label: t("money.cacheWrite"), value: draft.cacheWrite, onChange: (value) => setDraft({ ...draft, cacheWrite: value }) }),
 						h(PriceField, { label: t("money.output"), value: draft.output, onChange: (value) => setDraft({ ...draft, output: value }) }),
+						h(PriceField, { label: t("row.peakMultiplier"), value: draft.peakMultiplier, onChange: (value) => setDraft({ ...draft, peakMultiplier: value }) }),
 					),
+					h("div", { className: "dum_hint" }, tier ? t("prices.tierPeak", { factor: String(factor) }) : t("prices.tierOffPeak")),
+					h("div", { className: "dum_hint" }, t("prices.peakNote")),
 					h("div", { className: "dum_hint" }, t("prices.note")),
 					h(
 						"div",
@@ -653,6 +720,7 @@ window.__ModuleLoader__.load({
 										cacheRead: parsed("cacheRead"),
 										cacheWrite: parsed("cacheWrite"),
 										output: parsed("output"),
+										peakMultiplier: parsedFactor(),
 									});
 									setSaved(true);
 								},
@@ -695,12 +763,10 @@ window.__ModuleLoader__.load({
 			const model = selection?.next?.model ?? selection?.lastUsed?.model;
 			const provider = (selection?.next ?? selection?.lastUsed)?.provider;
 			const price = priceFor(prices, model);
-			const costs = usage === void 0 ? { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 } : (() => {
-				const per = {};
-				for (const bucket of BUCKETS) per[bucket.price] = (Number(usage[bucket.usage]) || 0) / 1e6 * price[bucket.price];
-				per.total = costOf(usage, price);
-				return per;
-			})();
+			// One render makes one tariff decision, so the pill and the panel agree.
+			const tier = isPeak(Date.now());
+			const factor = tier ? prices.peakMultiplier : 1;
+			const costs = costOf(usage, price, factor);
 			const hasUsage = usage !== void 0 && BUCKETS.some((bucket) => (Number(usage[bucket.usage]) || 0) > 0);
 			const wallet = balance.status === "ready" ? balance.wallets[0] : void 0;
 			// Place the panel above the pill, clamped to the viewport; flip below
@@ -775,6 +841,8 @@ window.__ModuleLoader__.load({
 								prices,
 								price,
 								costs,
+								tier,
+								factor,
 								balance,
 								style: { left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width, maxHeight: pos.maxHeight },
 								panelRef,
@@ -783,8 +851,15 @@ window.__ModuleLoader__.load({
 								onRefresh: () => {
 									stores.balance.refresh();
 								},
-								onSave: (next) => stores.prices.setModelPrice(model ?? FALLBACK_MODEL_KEY, next),
-								onReset: () => stores.prices.resetModel(model ?? FALLBACK_MODEL_KEY),
+								onSave: (next) => {
+									const { peakMultiplier, ...row } = next;
+									stores.prices.setModelPrice(model ?? FALLBACK_MODEL_KEY, row);
+									stores.prices.setPeakMultiplier(peakMultiplier);
+								},
+								onReset: () => {
+									stores.prices.resetModel(model ?? FALLBACK_MODEL_KEY);
+									stores.prices.setPeakMultiplier(DEFAULT_PRICES.peakMultiplier);
+								},
 								onCurrency: (code) => stores.prices.setCurrency(code),
 							}),
 							document.body,
