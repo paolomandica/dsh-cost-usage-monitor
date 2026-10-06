@@ -1,0 +1,4 @@
+{
+  "title": "Usage & balance",
+  "description": "Shows the DeepSeek account balance and an estimated cost for the current session, priced from provider-reported token usage."
+}
