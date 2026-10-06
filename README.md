@@ -16,8 +16,24 @@ contributed, the live wallet (plus bonus wallets), and the price table used for 
 | --- | --- |
 | Billed tokens | the `tokenUsage` session projection (`@deepseek-ai/dsh-token-meter`) — provider-reported `uncachedInputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `outputTokens` |
 | Priced route | the `modelSelection` session projection (`@deepseek-ai/dsh-api-session-controller`) — `next` falls back to `lastUsed` |
-| Balance | `ctx.remote.account.getBalance(...)` — the existing account Remote namespace (`@deepseek-ai/dsh-api-account-controller`), i.e. the same wallet the Account settings page shows |
+| Balance | this plugin's Host half: it resolves the `DEEPSEEK_API_KEY` credential and serves `GET /usage-monitor/balance` from the documented [`GET /user/balance`](https://api-docs.deepseek.com/api/get-user-balance) endpoint, which the browser half then reads |
 | Price per 1M tokens | this plugin — editable, persisted in `localStorage` |
+
+The balance is fetched **Host-side on purpose**: the API key belongs to the Host,
+`api.deepseek.com` serves no CORS headers, and the balance is not part of any session
+projection. The browser reads its own Host's route, so the key never reaches the page:
+
+```jsonc
+// GET /usage-monitor/balance
+{ "ok": true, "isAvailable": true, "fetchedAt": 1791234567890,
+  "wallets": [{ "currency": "CNY", "totalBalance": "42.50",
+                "grantedBalance": "5.00", "toppedUpBalance": "37.50" }] }
+// failures answer 4xx/5xx with { "ok": false, "error": { "code", "message" } }
+```
+
+`401`/`403` means DeepSeek rejected the credential, `503` that no `DEEPSEEK_API_KEY` is
+configured for the profile, `504` that the provider did not answer within 10 s, and `502`
+that the provider or the network failed. The panel shows the message instead of waiting.
 
 **Cost is an estimate.** The runtime reports exact token usage but carries no monetary
 price for a route, so the plugin ships an editable table seeded from the provider's list
@@ -49,25 +65,27 @@ exact steps for refreshing this table, the README table above, and the test expe
 
 - The entry lives in `conversation.composer.dock` (order 20, after the host stats pills)
   and stays hidden until there is something to report: measured usage, or a wallet the
-  account service actually returned.
+  balance route actually returned.
 - The balance is read on first mount, at most once per 60 s, deduplicated across mounts,
   and re-read on demand from the panel's ↻ button. The timer stops when the entry unmounts.
-- No account service in the profile → the panel says so and the cost side still works.
-  Signed out → the balance side says so and the cost side still works.
+- No balance route in the profile → the panel says so and the cost side still works.
+  A rejected credential or an unreachable provider → the panel shows the reason.
 - Nothing is written to the session log, the model request, or the system prompt. The Host
-  half is an empty `apply()`; the feature is entirely a browser module plus existing services.
+  half only registers the one read-only balance route; the widget itself is a browser module
+  plus existing services.
 
 ## Layout
 
 ```
 package.json         dsh.bundle.patch + dsh.client (platform, inject)
 cordis.patch.yml     inserts the Loader row
-index.js             Host half: no-op apply()
+index.js             Host half: registers GET /usage-monitor/balance
 client.js            Browser module: dock entry, panel, stores
 locale/en.json       Plugin-manager display metadata
 locale/zh.json
 icon.svg
 test/render.test.mjs Renders the browser half under a React double
+test/host.test.mjs   Drives the Host balance route under webServer/credentials doubles
 AGENTS.md            Where to read current prices; how to refresh them
 ```
 
@@ -86,18 +104,31 @@ the package is composed through the page's boot graph:
 curl -s -H "Cookie: <the dsh-auth cookie>" http://127.0.0.1:19387/ | grep -o 'dsh-usage-monitor[^"]*'
 ```
 
+The balance route needs the Web bundle's `webServer` service and a resolvable
+`DEEPSEEK_API_KEY` (the credential store, or the Host process environment). Check it
+directly — the route is unauthenticated on loopback, like the rest of the local server:
+
+```sh
+curl -s http://127.0.0.1:19387/usage-monitor/balance
+```
+
 ## Test
 
 ```sh
 node --check index.js && node --check client.js
+node test/host.test.mjs
 node test/render.test.mjs
 ```
 
-The test evaluates `client.js` against a minimal React double, drives `apply()` with a fake
-slot registry, resolves a fake account Remote, and asserts the pill and the panel render the
-expected cost, wallets, and price fields — including the empty, signed-out, and
-no-account-namespace cases. It freezes `Date` so the peak and off-peak tariffs are both
-exercised deterministically.
+`test/render.test.mjs` evaluates `client.js` against a minimal React double, drives `apply()`
+with a fake slot registry, stubs `fetch` as the balance route, and asserts the pill and the
+panel render the expected cost, wallets, and price fields — including the empty case, a
+rejected credential, and an unreachable route. It freezes `Date` so the peak and off-peak
+tariffs are both exercised deterministically.
+
+`test/host.test.mjs` imports `index.js` as a plain module (which also proves the Host half
+resolves no `@deepseek-ai/*` package), mounts the route over `webServer`/`credentials`
+doubles, and asserts the provider request, the shaped success body, and every failure code.
 
 ## Uninstall
 

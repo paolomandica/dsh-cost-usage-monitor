@@ -34,8 +34,7 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-api-remotes"
+        "@deepseek-ai/dsh-client-locale"
       ]
     }
   }

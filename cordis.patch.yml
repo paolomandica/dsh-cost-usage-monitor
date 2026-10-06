@@ -1,8 +1,8 @@
 # dsh bundle patch: inserts this plugin into the profile's layer stack.
 #
-# The Host half is a no-op (all rendering lives in the browser bundle); the row
-# exists so the package resolves as a Loader entry and dsh-client-modules can
-# publish ./client as a browser module.
+# The Host half registers the read-only balance route the browser half reads
+# (see index.js and AGENTS.md §5); the row also makes the package resolve as a
+# Loader entry so dsh-client-modules can publish ./client as a browser module.
 - insert:
     - id: dsh-usage-monitor
       name: 'dsh-usage-monitor'

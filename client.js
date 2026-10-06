@@ -2,12 +2,14 @@
  * dsh-usage-monitor — browser half.
  *
  * Registers one entry into the composer dock (`conversation.composer.dock`)
- * that reads two existing session projections and one existing Remote
- * namespace; it adds no Host surface of its own:
+ * that reads two existing session projections and one route its own Host half
+ * serves; it adds no other Host surface:
  *
  *   - `tokenUsage`      provider-reported billed tokens for the whole log
  *   - `modelSelection`  the route the session last used / will use next
- *   - `ctx.remote.account.getBalance`  the signed-in DeepSeek account wallet
+ *   - `GET /usage-monitor/balance`  the account wallet, fetched by the Host half
+ *     from the documented DeepSeek balance endpoint so the API key never
+ *     reaches the browser
  *
  * Cost is an estimate: token counts are exact provider usage, but the price
  * table ships with editable defaults (per 1M tokens) because prices are not
@@ -53,8 +55,7 @@ window.__ModuleLoader__.load({
 			"money.cacheRead": "Cache read",
 			"money.cacheWrite": "Cache write",
 			"money.output": "Output",
-			"balance.signedOut": "No DeepSeek account is signed in, so the balance is unavailable.",
-			"balance.unavailable": "This profile composes no account service, so the balance is unavailable.",
+			"balance.unavailable": "The balance route is not reachable, so the balance is unavailable.",
 			"balance.failed": "The balance could not be read.",
 			"balance.loading": "Reading the balance…",
 			"balance.refresh": "Refresh balance",
@@ -94,8 +95,7 @@ window.__ModuleLoader__.load({
 			"money.cacheRead": "缓存读取",
 			"money.cacheWrite": "缓存写入",
 			"money.output": "输出",
-			"balance.signedOut": "当前未登录 DeepSeek 账户，无法获取余额。",
-			"balance.unavailable": "当前配置未提供账户服务，无法获取余额。",
+			"balance.unavailable": "无法访问余额接口，暂不能获取余额。",
 			"balance.failed": "余额读取失败。",
 			"balance.loading": "正在读取余额…",
 			"balance.refresh": "刷新余额",
@@ -349,35 +349,45 @@ window.__ModuleLoader__.load({
 		//#endregion
 
 		//#region lib/types/client/balance.js
+		/** Route the Host half serves the account balance on. */
+		const BALANCE_PATH = "/usage-monitor/balance";
 		/** Minimum interval between automatic balance reads. */
 		const BALANCE_TTL_MS = 60000;
-		/** Best-effort build identity for the account call's client metadata. */
-		const CLIENT_VERSION = globalThis.__DSH_CLIENT_VERSION__ ?? "0.2.0-rc.2";
+		/** Browser-side budget for one read, beyond the Host's own provider budget. */
+		const BALANCE_TIMEOUT_MS = 15000;
 		/**
-		 * Build the calling-UI identity the account Remote methods carry.
-		 * @param ctx - browser plugin context.
-		 * @returns account client metadata.
+		 * Map one route wallet onto the row the panel renders.
+		 * @param wallet - one `wallets` entry from the balance route.
+		 * @returns a wallet row, or undefined when it carries no currency.
 		 */
-		function accountMetadata(ctx) {
-			let locale = "en";
-			try {
-				locale = ctx.get("locale")?.getSnapshot()?.active ?? "en";
-			} catch (_error) {
-				/* a composition without the locale service still reaches the Host */
-			}
-			return {
-				version: CLIENT_VERSION,
-				locale,
-				timezoneOffsetSeconds: -new Date().getTimezoneOffset() * 60,
-			};
+		function walletRow(wallet) {
+			if (wallet === void 0 || wallet === null || typeof wallet.currency !== "string") return void 0;
+			return { currency: wallet.currency, balance: String(wallet.totalBalance ?? "") };
 		}
 		/**
-		 * Build the shared account-balance store. Reads are TTL-cached, deduped,
-		 * and only run while at least one entry is mounted.
-		 * @param ctx - browser plugin context.
+		 * Read one error message out of a failed route response.
+		 * @param payload - parsed route body, when it parsed.
+		 * @param status - HTTP status the route answered with.
+		 * @returns a short message for the panel.
+		 */
+		function routeError(payload, status) {
+			const message = payload?.error?.message;
+			if (typeof message === "string" && message !== "") return message;
+			const code = payload?.error?.code;
+			if (typeof code === "string" && code !== "") return code;
+			return "The balance route answered " + String(status) + ".";
+		}
+		/**
+		 * Build the shared account-balance store.
+		 *
+		 * The balance itself is fetched by the Host half — the API key never
+		 * reaches the browser — so this store only drives the route: reads are
+		 * TTL-cached, deduped, timed out, and run while at least one entry is
+		 * mounted.
+		 *
 		 * @returns a snapshot store with a `refresh` action.
 		 */
-		function createBalanceStore(ctx) {
+		function createBalanceStore() {
 			let state = { status: "idle", wallets: [], bonusWallets: [], at: 0, error: null };
 			const listeners = new Set();
 			let inflight = null;
@@ -386,57 +396,45 @@ window.__ModuleLoader__.load({
 				state = next;
 				for (const listener of listeners) listener();
 			};
-			/**
-			 * Resolve the account namespace, which exists only where the
-			 * composition mounts the account Remote contribution.
-			 * @returns the namespace, or undefined.
-			 */
-			const namespace = () => {
-				const remote = ctx.get("remote");
-				return remote === void 0 ? void 0 : remote.account;
-			};
 			const read = (force) => {
-				const account = namespace();
-				if (account === void 0 || typeof account.getBalance !== "function") {
-					publish({ status: "unavailable", wallets: [], bonusWallets: [], at: Date.now(), error: null });
-					return Promise.resolve(state);
-				}
 				if (!force && state.status === "ready" && Date.now() - state.at < BALANCE_TTL_MS) return Promise.resolve(state);
 				if (inflight !== null) return inflight;
 				inflight = (async () => {
+					const controller = new AbortController();
+					const budget = setTimeout(() => controller.abort(), BALANCE_TIMEOUT_MS);
 					try {
-						const result = await account.getBalance(accountMetadata(ctx));
-						if (result === void 0 || result.ok !== true) {
-							const error = result === void 0 ? void 0 : result.error;
-							publish({
-								status: "failed",
-								wallets: [],
-								bonusWallets: [],
-								at: Date.now(),
-								error: typeof error?.message === "string" ? error.message : typeof error?.code === "string" ? error.code : null,
-							});
-						} else if (result.value === null) {
-							publish({ status: "signed-out", wallets: [], bonusWallets: [], at: Date.now(), error: null });
-						} else if (result.value?.status === "ready") {
-							publish({
-								status: "ready",
-								wallets: Array.isArray(result.value.value) ? result.value.value : [],
-								bonusWallets: Array.isArray(result.value.bonusWallets) ? result.value.bonusWallets : [],
-								at: Date.now(),
-								error: null,
-							});
-						} else {
-							publish({ status: "failed", wallets: [], bonusWallets: [], at: Date.now(), error: null });
+						const response = await fetch(BALANCE_PATH, {
+							method: "GET",
+							headers: { accept: "application/json" },
+							credentials: "same-origin",
+							signal: controller.signal,
+						});
+						const payload = await response.json().catch(() => null);
+						if (payload === null || payload.ok !== true) {
+							publish({ status: "failed", wallets: [], bonusWallets: [], at: Date.now(), error: routeError(payload, response.status) });
+							return;
 						}
+						const wallets = [];
+						const bonusWallets = [];
+						for (const wallet of Array.isArray(payload.wallets) ? payload.wallets : []) {
+							const row = walletRow(wallet);
+							if (row === void 0) continue;
+							wallets.push(row);
+							const granted = String(wallet.grantedBalance ?? "");
+							if (granted !== "" && Number(granted) > 0) bonusWallets.push({ currency: row.currency, balance: granted });
+						}
+						publish({ status: "ready", wallets, bonusWallets, at: Number(payload.fetchedAt) || Date.now(), error: null });
 					} catch (error) {
+						const aborted = error instanceof Error && error.name === "AbortError";
 						publish({
-							status: "failed",
+							status: "unavailable",
 							wallets: [],
 							bonusWallets: [],
 							at: Date.now(),
-							error: error instanceof Error ? error.message : String(error),
+							error: aborted ? "The balance route did not answer within " + BALANCE_TIMEOUT_MS / 1000 + " s." : "The balance route " + BALANCE_PATH + " is not reachable.",
 						});
 					} finally {
+						clearTimeout(budget);
 						inflight = null;
 					}
 					return state;
@@ -619,10 +617,13 @@ window.__ModuleLoader__.load({
 					...walletRows,
 					h("div", { className: "dum_hint" }, t("balance.updated", { time: formatClock(balance.at) })),
 				);
-			} else if (balance.status === "signed-out") {
-				balanceBody = h("div", { className: "dum_hint" }, t("balance.signedOut"));
 			} else if (balance.status === "unavailable") {
-				balanceBody = h("div", { className: "dum_hint" }, t("balance.unavailable"));
+				balanceBody = h(
+					React.Fragment,
+					null,
+					h("div", { className: "dum_hint" }, t("balance.unavailable")),
+					balance.error === null ? null : h("div", { className: "dum_error" }, balance.error),
+				);
 			} else if (balance.status === "failed") {
 				balanceBody = h(
 					React.Fragment,
@@ -909,7 +910,7 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			installStyles();
 			ctx.effect(() => ctx.locale.register(NS, { en, zh }), "dsh-usage-monitor: dictionaries");
-			const stores = { prices: createPriceStore(), balance: createBalanceStore(ctx) };
+			const stores = { prices: createPriceStore(), balance: createBalanceStore() };
 			ctx.slots.inject("conversation.composer.dock", () =>
 				ctx.slots.register(
 					{

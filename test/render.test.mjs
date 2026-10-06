@@ -209,7 +209,6 @@ const ctx = {
     registered.push(dispose)
   },
   get: (name) => {
-    if (name === 'remote') return ctx.__remote
     if (name === 'locale') return ctx.locale
     return undefined
   },
@@ -226,7 +225,6 @@ const ctx = {
       return () => {}
     },
   },
-  __remote: undefined,
 }
 
 let loaded
@@ -260,20 +258,60 @@ assert.equal(registration.options.locale, 'usageMonitor')
 
 const { stores } = registration.options.inject()
 
-// --- the account Remote the widget reads from -------------------------------
-let metadataSeen
-ctx.__remote = {
-  account: {
-    getBalance: async (metadata) => {
-      metadataSeen = metadata
-      return { ok: true, value: { status: 'ready', value: [{ currency: 'CNY', balance: '42.50' }], bonusWallets: [{ currency: 'CNY', balance: '5.00' }] } }
-    },
+// --- the balance route the Host half serves ---------------------------------
+// The browser never holds the API key: it reads the Host's own route, so the
+// double stands in for that route rather than for an account Remote.
+const routeCalls = []
+let routeReply = () => ({
+  status: 200,
+  body: {
+    ok: true,
+    isAvailable: true,
+    fetchedAt: 1_700_000_000_000,
+    wallets: [{ currency: 'CNY', totalBalance: '42.50', grantedBalance: '5.00', toppedUpBalance: '37.50' }],
   },
+})
+globalThis.fetch = async (url, options) => {
+  routeCalls.push({ url, options })
+  const { status, body } = routeReply()
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => body,
+  }
 }
+
 await stores.balance.refresh()
 assert.equal(stores.balance.getSnapshot().status, 'ready')
-assert.deepEqual(metadataSeen.locale, 'en-US')
-assert.equal(metadataSeen.timezoneOffsetSeconds % 60, 0, 'the metadata offset is whole seconds')
+assert.equal(routeCalls[0].url, '/usage-monitor/balance', 'the store reads the Host route')
+assert.deepEqual(stores.balance.getSnapshot().wallets, [{ currency: 'CNY', balance: '42.50' }])
+assert.deepEqual(stores.balance.getSnapshot().bonusWallets, [{ currency: 'CNY', balance: '5.00' }])
+
+// A rejected credential is reported, not retried forever.
+routeReply = () => ({ status: 401, body: { ok: false, error: { code: 'unauthorized', message: 'DeepSeek rejected the DEEPSEEK_API_KEY credential (401).' } } })
+await stores.balance.refresh()
+assert.equal(stores.balance.getSnapshot().status, 'failed')
+assert.match(stores.balance.getSnapshot().error, /rejected the DEEPSEEK_API_KEY/)
+
+// A missing route is reported as unreachable rather than left loading.
+routeReply = () => {
+  throw new Error('connection refused')
+}
+await stores.balance.refresh()
+assert.equal(stores.balance.getSnapshot().status, 'unavailable')
+assert.match(stores.balance.getSnapshot().error, /not reachable/)
+
+routeReply = () => ({
+  status: 200,
+  body: {
+    ok: true,
+    isAvailable: true,
+    fetchedAt: 1_700_000_000_000,
+    wallets: [{ currency: 'CNY', totalBalance: '42.50', grantedBalance: '5.00', toppedUpBalance: '37.50' }],
+  },
+})
+await stores.balance.refresh()
+assert.equal(stores.balance.getSnapshot().status, 'ready')
 
 // --- render the pill --------------------------------------------------------
 // A settable clock keeps the peak/off-peak tariff deterministic: the widget
@@ -346,19 +384,20 @@ html = serialize(renderFunction(registration.component, props))
 assert.ok(html.includes('$0.216'), `weekends must stay off-peak, got: ${html}`)
 frozenAt = new RealDate('2026-03-11T12:00:00Z').getTime()
 
-// --- a signed-out account still renders the cost side ----------------------
-ctx.__remote = { account: { getBalance: async () => ({ ok: true, value: null }) } }
+// --- a failing balance route still renders the cost side --------------------
+routeReply = () => ({ status: 503, body: { ok: false, error: { code: 'no-credential', message: 'No DEEPSEEK_API_KEY credential is configured for this profile.' } } })
 await stores.balance.refresh()
-assert.equal(stores.balance.getSnapshot().status, 'signed-out')
+assert.equal(stores.balance.getSnapshot().status, 'failed')
 tree = renderFunction(registration.component, props)
-assert.ok(serialize(tree).includes('$0.216'), 'the cost survives a signed-out account')
-
-// --- no account namespace at all -------------------------------------------
-ctx.__remote = undefined
-await stores.balance.refresh()
-assert.equal(stores.balance.getSnapshot().status, 'unavailable')
+html = serialize(tree)
+assert.ok(html.includes('$0.216'), 'the cost survives an unreadable balance')
+assert.ok(html.includes('DEEPSEEK_API_KEY'), `the panel must say why the balance failed, got: ${html}`)
 
 // --- nothing measured and no wallet: the entry stays out of the dock -------
+routeReply = () => {
+  throw new Error('connection refused')
+}
+await stores.balance.refresh()
 const quiet = renderFunction(registration.component, {
   ...props,
   useProjection: () => undefined,

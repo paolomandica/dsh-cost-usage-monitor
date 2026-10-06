@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Instructions for a coding agent working in this repository. The one recurring request this
-file exists for is **"update the prices"** — a human asking you to refresh the DeepSeek rate
-card this plugin prices sessions with.
+Instructions for a coding agent working in this repository. Two recurring requests this file
+exists for: **"update the prices"** — a human asking you to refresh the DeepSeek rate card
+this plugin prices sessions with (§1–§4) — and **"the balance is not showing"** (§5).
 
-Read the whole file before editing numbers. Everything you need is here.
+Read the relevant section before editing numbers or balance code. Everything you need is here.
 
 ## 1. Where the current prices are
 
@@ -23,8 +23,8 @@ aggregators — they lag and they mix tiers.
    - The same page defines the peak windows and the peak/off-peak ratio in footnotes; if
      those moved, §4 tells you what else to change.
 2. **What was actually billed (authoritative for money spent)**
-   - <https://platform.deepseek.com/> — the account usage/billing view, and
-     `ctx.remote.account.getBalance(...)`, which the plugin already surfaces.
+   - <https://platform.deepseek.com/> — the account usage/billing view. The plugin surfaces
+     the same wallet through its balance route (§5).
    - If the user's effective rates differ from the list page (contract, credits, a legacy
      plan), the platform view is the number that matters — ask before hard-coding a
      deviation as a default.
@@ -68,7 +68,7 @@ previous snapshot as if it were fresh.
 7. Verify:
    ```sh
    node --check index.js && node --check client.js
-   node test/render.test.mjs
+   node test/host.test.mjs && node test/render.test.mjs
    ```
 8. Commit, naming the source and the date in the message, e.g.
    `Update Flash prices to the 2026-10-06 rate card (api-docs.deepseek.com/quick_start/pricing)`.
@@ -90,3 +90,41 @@ Verified against the official pricing page on **2026-10-06**.
 USD per 1M tokens, **off-peak**. Peak is `2 ×` these values, inside 01:00–04:00 and
 06:00–10:00 UTC, Monday to Friday. Chinese public holidays are off-peak upstream and are not
 modelled by this plugin, so a holiday weekday is priced at peak.
+
+## 5. The balance route
+
+The account balance is **not** read from a Harness Remote. An earlier revision called
+`ctx.remote.account.getBalance(...)`, which never settled in the desktop composition — the
+panel sat on "Reading the balance…" forever. The balance now comes from the documented
+REST endpoint, fetched by the Host half:
+
+- **Endpoint**: `GET https://api.deepseek.com/user/balance`, `Authorization: Bearer <key>`.
+  Docs: <https://api-docs.deepseek.com/api/get-user-balance> (zh: `/zh-cn/api/get-user-balance`).
+  It answers `{ is_available, balance_infos: [{ currency, total_balance, granted_balance,
+  topped_up_balance }] }`. It is free to call and bills no tokens.
+- **Key**: the `DEEPSEEK_API_KEY` credential. `resolveApiKey()` asks `ctx.get('credentials')`
+  first with `credentials.resolve('DEEPSEEK_API_KEY')` and falls back to `process.env`. Read
+  per request, never cached, so a rotated key reaches the next call.
+- **Transport**: `index.js` registers one exact route on `ctx.get('webServer')` —
+  `GET /usage-monitor/balance` — and shapes the provider payload. The browser registers no
+  Remote and never sees the key. `index.js` deliberately imports no `@deepseek-ai/*` package:
+  the plugin is installed as a `link:` and resolves modules from this directory, where no
+  harness package exists, so a static harness import would fail at load.
+- **Contract**: `200 { ok, isAvailable, fetchedAt, wallets: [{ currency, totalBalance,
+  grantedBalance, toppedUpBalance }] }`, otherwise `{ ok: false, error: { code, message } }`
+  with `401` rejected credential, `503` no credential, `504` provider timeout (10 s), `502`
+  provider or network fault, `405` non-GET. The client maps those to the panel's wallet rows
+  or its failure line; nothing waits indefinitely.
+
+Debugging "the balance is not showing":
+
+1. `curl -s http://127.0.0.1:19387/usage-monitor/balance` — the route is unauthenticated on
+   loopback. `404` means the Host half did not activate, which almost always means the
+   composition provides no `webServer` service (the plugin declares `inject: ['webServer']`).
+2. Read the `error.code` the route returns and act on it: `no-credential` → the profile has
+   no `DEEPSEEK_API_KEY`; `unauthorized` → the key is wrong or revoked; `network`/`timeout` →
+   the Host could not reach `api.deepseek.com`.
+3. `node test/host.test.mjs` covers every one of those codes without touching the network.
+
+If you change the route path, the response shape, or the credential reference, update
+`client.js`, this section, the README table, and both tests in the same change.
