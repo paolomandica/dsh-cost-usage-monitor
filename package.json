@@ -1,6 +1,6 @@
 {
   "name": "dsh-cost-usage-monitor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "DeepSeek account balance and per-session usage cost in the Harness composer dock.",
   "keywords": [
     "dsh-plugin",
