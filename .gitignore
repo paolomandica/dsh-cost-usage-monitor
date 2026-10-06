@@ -17,3 +17,7 @@ yarn-error.log*
 coverage/
 dist/
 *.tgz
+
+# Local end-to-end plugin install smoke profile
+.smoke/
+.pnpm-store/
