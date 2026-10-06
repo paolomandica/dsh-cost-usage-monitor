@@ -4,8 +4,11 @@ A DeepSeek Harness plugin that puts **account balance** and **session usage cost
 composer dock, next to the built-in stats pills.
 
 ```
-                                                        $ $0.216 · ·  ¥42.50
+                                                  (gauge) $0.216 · ·  ¥42.50
 ```
+
+The leading glyph is a usage gauge — a half-oval dial with a needle and a dotted scale
+([`icon.svg`](icon.svg), drawn inline by `UsageIcon`), not a currency symbol.
 
 The pill is a button. It opens a panel with the billed token buckets, the cost each bucket
 contributed, the live wallet (plus bonus wallets), and the price table used for the estimate.

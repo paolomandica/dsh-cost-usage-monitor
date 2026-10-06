@@ -520,15 +520,27 @@ window.__ModuleLoader__.load({
 
 		//#region lib/types/client/UsageIcon.js
 		/**
-		 * Small balance/usage glyph matching the composer pill metrics.
+		 * Small usage-meter glyph matching the composer pill metrics: a half-oval dial
+		 * with five scale dots, a needle, and its hub. Geometry mirrors `icon.svg`.
 		 * @returns the icon element.
 		 */
+		const USAGE_ICON_TICKS = [
+			[5.8, 14.6],
+			[7.62, 10.22],
+			[12, 8.4],
+			[16.38, 10.22],
+			[18.2, 14.6],
+		];
 		function UsageIcon() {
 			return h(
 				"svg",
 				{ viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
-				h("path", { key: "a", d: "M12 2.6v18.8" }),
-				h("path", { key: "b", d: "M16.8 6.9c-.9-1.4-2.7-2.2-4.8-2.2-2.7 0-4.9 1.4-4.9 3.6s2.2 3.4 4.9 3.4 4.9 1.3 4.9 3.5-2.2 3.6-4.9 3.6c-2.1 0-3.9-.8-4.8-2.2" }),
+				h("path", { key: "dial", d: "M2 18a10 12 0 0 1 20 0z" }),
+				h("path", { key: "needle", d: "M12 14.6 16.2 8.6", strokeWidth: 2.2 }),
+				h("circle", { key: "hub", cx: 12, cy: 14.6, r: 1.8, fill: "currentColor", stroke: "none" }),
+				USAGE_ICON_TICKS.map(([cx, cy], index) =>
+					h("circle", { key: `tick${index}`, cx, cy, r: 1, fill: "currentColor", stroke: "none" }),
+				),
 			);
 		}
 		//#endregion
