@@ -3,12 +3,17 @@
 A DeepSeek Harness plugin that puts **account balance** and **session usage cost** in the
 composer dock, next to the built-in stats pills.
 
-```
-                                                  (gauge) $0.216 · ·  ¥42.50
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/pill-dark.svg">
+  <img alt="The composer pill: a usage gauge, the session cost $0.216, and the account balance ¥42.50"
+       src="assets/pill-light.svg" width="264">
+</picture>
 
 The leading glyph is a usage gauge — a half-oval dial with a needle and a dotted scale
-([`icon.svg`](https://github.com/paolomandica/dsh-cost-usage-monitor/blob/main/icon.svg), drawn inline by `UsageIcon`), not a currency symbol.
+([`icon.svg`](https://github.com/paolomandica/dsh-cost-usage-monitor/blob/main/icon.svg), drawn inline by `UsageIcon`), not a currency symbol. Both
+[`assets/pill-light.svg`](assets/pill-light.svg) and [`assets/pill-dark.svg`](assets/pill-dark.svg)
+are drawn at the pill's real metrics — a 14 px icon, 12 px tabular figures, 6 px gaps — so
+the artwork matches what the dock renders in either theme.
 
 The pill is a button. It opens a panel with the billed token buckets, the cost each bucket
 contributed, the live wallet (plus bonus wallets), and the price table used for the estimate.
@@ -87,6 +92,8 @@ client.js            Browser module: dock entry, panel, stores
 locale/en.json       Plugin-manager display metadata
 locale/zh.json
 icon.svg
+assets/pill-light.svg README artwork, drawn at the pill's real metrics
+assets/pill-dark.svg
 test/render.test.mjs Renders the browser half under a React double
 test/host.test.mjs   Drives the Host balance route under webServer/credentials doubles
 AGENTS.md            Where to read current prices; how to refresh them
